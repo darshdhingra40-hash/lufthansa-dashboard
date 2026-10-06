@@ -82,7 +82,9 @@ if pe is None and market_cap:
     if not _f.empty and _f["net_income_eur_m"].iloc[-1] > 0:
         pe = market_cap / (_f["net_income_eur_m"].iloc[-1] * 1e6)
 col3.metric("P/E Ratio", fmt(pe, "{:.1f}x"))
-col4.metric("Dividend Yield", fmt(div_yield, "{:.2f}%"))
+_fc = get_fundamentals()
+fcf = _fc["adj_free_cash_flow_eur_m"].iloc[-1] if not _fc.empty else None
+col4.metric("Adj FCF (2025)", fmt(fcf, "€{:,.0f}M"))
 col5.metric("52W High", fmt(last_year["Close"].max(), "€{:.2f}"))
 
 if not info:
@@ -179,4 +181,4 @@ else:
     st.warning("Ratios unavailable.")
 
 st.write("---")
-st.caption(f"Data source: Yahoo Finance | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+st.caption(f"Prices: Yahoo Finance | Fundamentals: Lufthansa Group Annual Reports 2021–2025 (consolidated) | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
