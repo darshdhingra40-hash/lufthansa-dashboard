@@ -32,6 +32,15 @@ def get_market_cap(ticker):
         return None
 
 
+@st.cache_data(ttl=86400)
+def get_fundamentals():
+    """Load historical fundamentals from CSV (cached for 24 hours)."""
+    try:
+        return pd.read_csv("https://raw.githubusercontent.com/darshdhingra40-hash/lufthansa-dashboard/main/lufthansa_fundamentals.csv")
+    except Exception:
+        return pd.DataFrame()
+
+
 def fmt(value, pattern, fallback="N/A"):
     """Format a number safely. Returns 'N/A' instead of crashing on missing data."""
     try:
@@ -108,6 +117,44 @@ if returns:
     ))
     fig_comp.update_layout(yaxis_title="Return (%)", height=350, template="plotly_white")
     st.plotly_chart(fig_comp, use_container_width=True)
+
+# ---------- Historical Fundamentals (from CSV) ----------
+st.subheader("5-Year Financial Fundamentals")
+fundamentals = get_fundamentals()
+
+if not fundamentals.empty:
+    # Revenue & EBIT trend
+    fig_fin = go.Figure()
+    fig_fin.add_trace(go.Scatter(
+        x=fundamentals["year"], y=fundamentals["revenue_eur_m"], mode="lines+markers",
+        name="Revenue", line=dict(color="#1f77b4", width=2),
+    ))
+    fig_fin.add_trace(go.Scatter(
+        x=fundamentals["year"], y=fundamentals["adj_ebit_eur_m"], mode="lines+markers",
+        name="Adjusted EBIT", line=dict(color="#ff7f0e", width=2),
+    ))
+    fig_fin.update_layout(hovermode="x unified", height=350, yaxis_title="EUR millions",
+                          xaxis_title="Year", template="plotly_white")
+    st.plotly_chart(fig_fin, use_container_width=True)
+
+    # Key fundamentals table
+    st.write("**Financial Metrics Summary (2021–2025)**")
+    display_cols = ["year", "revenue_eur_m", "adj_ebitda_eur_m", "adj_ebit_eur_m",
+                    "net_income_eur_m", "passengers_m", "passenger_load_factor_pct"]
+    display_df = fundamentals[display_cols].copy()
+    display_df.columns = ["Year", "Revenue (€M)", "Adj EBITDA (€M)", "Adj EBIT (€M)",
+                          "Net Income (€M)", "Passengers (M)", "Load Factor (%)"]
+    
+    # Format numbers
+    for col in display_df.columns[1:]:
+        if "Load Factor" in col:
+            display_df[col] = display_df[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A")
+        else:
+            display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+else:
+    st.warning("Could not load historical fundamentals from CSV.")
 
 # ---------- Ratios ----------
 st.subheader("Key Financial Ratios")
