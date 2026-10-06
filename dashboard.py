@@ -11,7 +11,8 @@ st.set_page_config(page_title="Lufthansa Financial Analysis", layout="wide")
 @st.cache_data(ttl=3600)
 def get_history(ticker, period):
     try:
-        return yf.Ticker(ticker).history(period=period)
+        df = yf.Ticker(ticker).history(period=period)
+        return df.dropna(subset=["Close"])  # drop empty rows that cause "nan"
     except Exception:
         return pd.DataFrame()
 
@@ -74,7 +75,13 @@ if div_yield is not None and div_yield < 1:  # some yfinance versions return 0.0
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Stock Price", fmt(history["Close"].iloc[-1], "€{:.2f}"))
 col2.metric("Market Cap", fmt(market_cap / 1e9 if market_cap else None, "€{:.1f}B"))
-col3.metric("P/E Ratio", fmt(info.get("trailingPE"), "{:.1f}x"))
+pe = info.get("trailingPE")
+if pe is None and market_cap:
+    # Fallback when Yahoo blocks us: market cap / latest net income from CSV
+    _f = get_fundamentals()
+    if not _f.empty and _f["net_income_eur_m"].iloc[-1] > 0:
+        pe = market_cap / (_f["net_income_eur_m"].iloc[-1] * 1e6)
+col3.metric("P/E Ratio", fmt(pe, "{:.1f}x"))
 col4.metric("Dividend Yield", fmt(div_yield, "{:.2f}%"))
 col5.metric("52W High", fmt(last_year["Close"].max(), "€{:.2f}"))
 
@@ -135,6 +142,7 @@ if not fundamentals.empty:
     ))
     fig_fin.update_layout(hovermode="x unified", height=350, yaxis_title="EUR millions",
                           xaxis_title="Year", template="plotly_white")
+    fig_fin.update_xaxes(type="category")  # show 2021, 2022... not 2021.5
     st.plotly_chart(fig_fin, use_container_width=True)
 
     # Key fundamentals table
@@ -144,14 +152,16 @@ if not fundamentals.empty:
     display_df = fundamentals[display_cols].copy()
     display_df.columns = ["Year", "Revenue (€M)", "Adj EBITDA (€M)", "Adj EBIT (€M)",
                           "Net Income (€M)", "Passengers (M)", "Load Factor (%)"]
-    
+
     # Format numbers
     for col in display_df.columns[1:]:
         if "Load Factor" in col:
             display_df[col] = display_df[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A")
+        elif "Passengers" in col:
+            display_df[col] = display_df[col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
         else:
             display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
-    
+
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 else:
     st.warning("Could not load historical fundamentals from CSV.")
@@ -159,10 +169,14 @@ else:
 # ---------- Ratios ----------
 st.subheader("Key Financial Ratios")
 r1, r2, r3 = st.columns(3)
-r1.metric("EPS (TTM)", fmt(info.get("trailingEps"), "€{:.2f}"))
-roe = info.get("returnOnEquity")
-r2.metric("Return on Equity", fmt(roe * 100 if roe is not None else None, "{:.1f}%"))
-r3.metric("Debt-to-Equity", fmt(info.get("debtToEquity"), "{:.1f}"))
+_f = get_fundamentals()
+if not _f.empty:
+    last = _f.iloc[-1]
+    r1.metric("Net Debt / Adj EBITDA (2025)", fmt(last["net_debt_eur_m"] / last["adj_ebitda_eur_m"], "{:.1f}x"))
+    r2.metric("Adj EBIT Margin (2025)", fmt(last["adj_ebit_eur_m"] / last["revenue_eur_m"] * 100, "{:.1f}%"))
+    r3.metric("Net Income Margin (2025)", fmt(last["net_income_eur_m"] / last["revenue_eur_m"] * 100, "{:.1f}%"))
+else:
+    st.warning("Ratios unavailable.")
 
 st.write("---")
 st.caption(f"Data source: Yahoo Finance | Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
